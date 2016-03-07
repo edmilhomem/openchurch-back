@@ -1,0 +1,9 @@
+#Header set Access-Control-Allow-Origin "http://localhost:9995"
+#Header set Access-Control-Allow-Credentials "true"
+#Header set Access-Control-Allow-Headers "*"
+#Header set Access-Control-Allow-Methods "GET,POST,HEAD,DELETE,PUT,OPTIONS"
+
+RewriteBase /openchurch/openchurch-back/
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [L]

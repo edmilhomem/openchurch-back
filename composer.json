@@ -1,0 +1,27 @@
+{
+    "name": "jacksongomesbr/openchurch-back",
+    "description": "Openchurch Backend (PHP+Silex)",
+    "authors": [
+        {
+            "name": "Jackson Gomes",
+            "email": "jackson.souza@gmail.com"
+        }
+    ],
+    "require": {
+        "silex/silex": "^1.3",
+        "symfony/yaml": "^3.0",
+        "jasongrimes/silex-simpleuser": "^2.0",
+        "jdesrosiers/silex-cors-provider": "^0.1.5",
+        "ziadoz/silex-capsule": "^1.2"
+    },
+    "autoload": {
+        "psr-0": {
+            "" : "src/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^4.8",
+        "symfony/browser-kit": "^3.0",
+        "symfony/css-selector": "^3.0"
+    }
+}
