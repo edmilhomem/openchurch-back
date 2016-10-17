@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="DataSourceManagerImpl" format="xml" hash="1547826588">
+  <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
     <data-source source="LOCAL" name="MySQL - openchurch@localhost" uuid="2d3c3d57-2474-44f2-ab30-47d1ce8198cd">
       <driver-ref>mysql</driver-ref>
       <synchronize>true</synchronize>

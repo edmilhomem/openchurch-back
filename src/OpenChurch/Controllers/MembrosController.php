@@ -13,157 +13,147 @@ use OpenChurch\Data\DataUtils;
 use OpenChurch\Models\Pessoa;
 use OpenChurch\Models\Membro;
 use OpenChurch\Models\Igreja;
+use OpenChurch\Utils;
 use Silex\Application;
 use Symfony\Component\HttpFoundation\Request;
-use Illuminate\Database\Capsule\Manager as Capsule;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class MembrosController
 {
     public function all($idIgreja, Application $application, Request $request)
     {
-        $q = $request->query->get('q'); // critério de busca
-        $i = $request->query->get('i', null); // indice da página
-        $p = $request->query->get('p'); // tamanho da página
-        $o = $request->query->get('o', 'pessoas.nome'); // campo da ordenação
-        $t = $request->query->get('t', 'asc'); // tipo da ordenação
-        $skip = null;
+        $igrejas_manager = new Igreja($application['db']);
 
-        if (!$i) {
-            $i = 0;
-        } else {
-            $i--;
+        if (!$application['igrejas.controller']->exists($idIgreja, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $idIgreja) não foi encontrada.");
         }
 
-        if ($p) {
-            $skip = $i * $p;
-        }
+        $params = [
+            'i' => $request->query->get('i', null),
+            'p' => $request->query->get('p', null),
+            'o' => $request->query->get('o', 'pessoas.nome'),
+            't' => $request->query->get('t', 'asc')
+        ];
 
-        $query = Membro::with(array('pessoa', 'igreja'))
-            ->join('pessoas', 'pessoas.id', '=', 'membros.pessoa_id')
-            ->join('igrejas', 'igrejas.id', '=', 'membros.igreja_id')
-            ->where('igreja_id', '=', $idIgreja);
+        $q = $request->query->get('q', null); // critério de busca
 
-        $q = $request->query->get('q');
+        $select = "pessoas.*, membros.*";
+        $from = "membros
+        INNER JOIN pessoas ON membros.pessoa_id = pessoas.id";
+        $where = "membros.igreja_id = ?";
+
+        $where_params = [$idIgreja];
+
         if ($q) {
             $q = "%$q%";
-            $query->where('pessoas.nome', 'like', $q);
+            $where .= " AND pessoas.nome like ?";
+            $where_params[] = $q;
         }
 
-        $total = $query->count();
+        $params['q'] = $where_params;
 
-        $query->orderBy($o, $t)
-            ->select('membros.*');
+        $manager = new Membro($application['db']);
 
-        if ($skip !== null) {
-            $query->skip($skip)->take($p);
-        }
-
-        $membros = $query->get();
-
-        return $application->json(
-            array(
-                'total' => $total,
-                'items' => $membros
-            )
-        );
+        return $application->json($manager->page(
+            $select,
+            $from,
+            $where,
+            $params
+        ));
     }
 
     public function find($id, $idIgreja, Application $application)
     {
-        $membro = Membro::with('pessoa', 'pessoa.pai', 'pessoa.mae',
-            'pessoa.conjuge', 'igreja')->findOrFail($id);
-        return $application->json($membro);
+        if (!$application['igrejas.controller']->exists($idIgreja, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $idIgreja) não foi encontrada.");
+        }
+        $membros_manager = new Membro($application['db']);
+        $membro = $membros_manager->find(['id' => $id]);
+        if (!$membro) {
+            throw new NotFoundHttpException("O membro (id = $id) não foi encontrado");
+        } else {
+            return $application->json(['data' => $membro]);
+        }
     }
 
     public function save($idIgreja, $id = null, Application $application, Request $request)
     {
         try {
-            Capsule::beginTransaction();
+            $application['db']->beginTransaction();
+            $post = json_decode($request->getContent());
+            $existe = false;
 
-            $membro = Membro::findOrNew($id);
+            $pessoas_manager = new Pessoa($application['db']);
 
             // primeiro, salva pessoa
             // é uma pessoa já existente
-            $pessoa_dados = $request->request->get('pessoa');
+            $pessoa = $pessoas_manager->findOrNew(['id' => Utils::safeProperty($post->pessoa, 'id')]);
 
-            $pessoa_id = DataUtils::array_key($pessoa_dados, 'id');
-            $pessoa = Pessoa::findOrNew($pessoa_id);
+            $pessoa->cpf = Utils::safeProperty($post->pessoa, 'cpf');
+            $pessoa->data_de_nascimento = Utils::safeProperty($post->pessoa, 'data_de_nascimento');
+            $pessoa->email = Utils::safeProperty($post->pessoa, 'email');
+            $pessoa->endereco = Utils::safeProperty($post->pessoa, 'endereco');
+            $pessoa->endereco_numero = Utils::safeProperty($post->pessoa, 'endereco_numero');
+            $pessoa->endereco_bairro = Utils::safeProperty($post->pessoa, 'endereco_bairro');
+            $pessoa->endereco_cidade = Utils::safeProperty($post->pessoa, 'endereco_cidade');
+            $pessoa->endereco_uf = Utils::safeProperty($post->pessoa, 'endereco_uf');
+            $pessoa->endereco_cep = Utils::safeProperty($post->pessoa, 'endereco_cep');
+            $pessoa->estado_civil = Utils::safeProperty($post->pessoa, 'estado_civil');
+            $pessoa->instrucao = Utils::safeProperty($post->pessoa, 'instrucao');
+            $pessoa->nacionalidade = Utils::safeProperty($post->pessoa, 'nacionalidade');
+            $pessoa->naturalidade_cidade = Utils::safeProperty($post->pessoa, 'naturalidade_cidade');
+            $pessoa->naturalidade_uf = Utils::safeProperty($post->pessoa, 'naturalidade_uf');
+            $pessoa->nome = Utils::safeProperty($post->pessoa, 'nome');
+            if (!$pessoa->nome) {
+                throw new Exception('O nome deve ser obrigatoriamente informado');
+            }
+            $pessoa->observacoes = Utils::safeProperty($post->pessoa, 'observacoes');
+            $pessoa->profissao = Utils::safeProperty($post->pessoa, 'profissao');
+            $pessoa->religiao = Utils::safeProperty($post->pessoa, 'religiao');
+            $pessoa->sexo = Utils::safeProperty($post->pessoa, 'sexo');
+            $pessoa->telefone = Utils::safeProperty($post->pessoa, 'telefone');
 
-            // tenta encontrar pai, mae, conjuge
-            if (($dados_pai = DataUtils::array_key($pessoa_dados, 'pai')) != null) {
-                $pai = Pessoa::findOrNew(DataUtils::array_key($dados_pai, 'id'));
-                $pai->nome = DataUtils::array_key($dados_pai, 'nome');
-                $pai->religiao = DataUtils::array_key($dados_pai, 'religiao');
-                $pai->save();
-                $pessoa->pai()->associate($pai);
+            $pessoa = $pessoas_manager->save($pessoa, ["id" => Utils::safeProperty($post->pessoa, 'id')]);
+
+            // atualizar dados relacionados: pai, mae, conjuge
+            if (($pai = Utils::safeProperty($post->pessoa, 'pai')) != null) {
+                $pessoa->pai = $pessoas_manager->save($pai, ['id' => $pai->id]);
+                $pessoa->pai_id = $pessoa->pai->id;
             } else {
                 $pessoa->pai_id = null;
             }
 
-            if (($dados_mae = DataUtils::array_key($pessoa_dados, 'mae')) != null) {
-                $mae = Pessoa::findOrNew(DataUtils::array_key($dados_mae, 'id'));
-                $mae->nome = DataUtils::array_key($dados_mae, 'nome');
-                $mae->religiao = DataUtils::array_key($dados_mae, 'religiao');
-                $mae->save();
-                $pessoa->mae()->associate($mae);
+            if (($mae = Utils::safeProperty($pessoa, 'mae')) != null) {
+                $pessoa->mae = $pessoas_manager->save($mae, ['id' => $mae->id]);
+                $pessoa->mae_id = $pessoa->mae->id;
             } else {
                 $pessoa->mae_id = null;
             }
 
-            if (($dados_conjuge = DataUtils::array_key($pessoa_dados, 'conjuge')) != null) {
-                $conjuge = Pessoa::findOrNew(DataUtils::array_key($dados_conjuge, 'id'));
-                $conjuge->nome = DataUtils::array_key($dados_conjuge, 'nome');
-                $conjuge->religiao = DataUtils::array_key($dados_conjuge, 'religiao');
+            if (($conjuge = Utils::safeProperty($pessoa, 'conjuge')) != null) {
                 $conjuge->conjuge_id = $pessoa->id;
-                $conjuge->save();
-                $pessoa->conjuge()->associate($conjuge);
+                $pessoa->conjuge = $pessoas_manager->save($conjuge, ['id' => $conjuge->id]);
+                $pessoa->conjuge_id = $pessoa->conjuge->id;
             } else {
                 $pessoa->conjuge_id = null;
             }
 
-            $pessoa->cpf = DataUtils::array_key($pessoa_dados, 'cpf');
-            $pessoa->data_de_nascimento = DataUtils::array_key($pessoa_dados, 'data_de_nascimento');
-            $pessoa->email = DataUtils::array_key($pessoa_dados, 'email');
-            $pessoa->endereco = DataUtils::array_key($pessoa_dados, 'endereco');
-            $pessoa->endereco_numero = DataUtils::array_key($pessoa_dados, 'endereco_numero');
-            $pessoa->endereco_bairro = DataUtils::array_key($pessoa_dados, 'endereco_bairro');
-            $pessoa->endereco_cidade = DataUtils::array_key($pessoa_dados, 'endereco_cidade');
-            $pessoa->endereco_uf = DataUtils::array_key($pessoa_dados, 'endereco_uf');
-            $pessoa->endereco_cep = DataUtils::array_key($pessoa_dados, 'endereco_cep');
-            $pessoa->estado_civil = DataUtils::array_key($pessoa_dados, 'estado_civil');
-            $pessoa->instrucao = DataUtils::array_key($pessoa_dados, 'instrucao');
-            $pessoa->nacionalidade = DataUtils::array_key($pessoa_dados, 'nacionalidade');
-            $pessoa->naturalidade_cidade = DataUtils::array_key($pessoa_dados, 'naturalidade_cidade');
-            $pessoa->naturalidade_uf = DataUtils::array_key($pessoa_dados, 'naturalidade_uf');
-            $pessoa->nome = DataUtils::array_key($pessoa_dados, 'nome');
-            if (!$pessoa->nome) {
-                throw new Exception('O nome deve ser obrigatoriamente informado');
-            }
-            $pessoa->observacoes = DataUtils::array_key($pessoa_dados, 'observacoes', null);
-            $pessoa->profissao = DataUtils::array_key($pessoa_dados, 'profissao', null);
-            $pessoa->religiao = DataUtils::array_key($pessoa_dados, 'religiao', null);
-            $pessoa->sexo = DataUtils::array_key($pessoa_dados, 'sexo', null);
-            $pessoa->telefone = DataUtils::array_key($pessoa_dados, 'telefone', null);
+            // atualizar pessoa
+            $pessoas_manager->save($pessoa, ['id' => $pessoa->id]);
 
-            $pessoa->push();
+            $membros_manager = new Membro($application['db']);
+            $membro = $membros_manager->findOrNew(['id' => $id]);
+            $membro->igreja_id = $idIgreja;
+            $membro->pessoa_id = $pessoa->id;
+            $membro = $membros_manager->save($membro, ['id' => $id]);
+            $membro->pessoa = $pessoa;
 
-            $membro->pessoa()->associate($pessoa);
-
-            $igreja_dados = $request->request->get('igreja');
-            if (($igreja_id = DataUtils::array_key($igreja_dados, 'id'))) {
-                $igreja = Igreja::findOrFail($igreja_id);
-                $membro->igreja()->associate($igreja);
-            }
-
-            $membro->push();
-
-            Capsule::commit();
+            $application['db']->commit();
 
             return $application->json($membro);
-        } catch (Exception $e)
-        {
-            Capsule::rollback();
-            return $application->abort(500, $e->getMessage());
+        } catch (Exception $e) {
+            $application['db']->rollBack();
+            return $e;
         }
     }
 }

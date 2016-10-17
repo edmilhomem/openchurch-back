@@ -23,7 +23,7 @@ use Symfony\Component\Security\Acl\Exception\Exception;
 class SalasDeEbdController
 {
     /**
-     * Consulta e retorna as igrejas. Os parâmetros de URL indicam:
+     * Consulta e retorna as salas de ebd. Os parâmetros de URL indicam:
      * * q: o critério de busca
      * * i: o número da página
      * * p: a quantidade de itens por página
@@ -88,8 +88,12 @@ class SalasDeEbdController
 
     }
 
-    public function find($id, $idSala, Application $application)
+    public function find($idIgreja, $idSala, Application $application)
     {
+        $igreja = Igreja::find($idIgreja);
+        if (!$igreja) {
+            return $application->abort(404);
+        }
         $sala = SalaDeEbd::with('igreja', 'professores', 'alunos', 'aulas', 'aulas.presentes')->find($idSala);
         if (!$sala) {
             return $application->abort(404);

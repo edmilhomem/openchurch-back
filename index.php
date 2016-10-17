@@ -17,7 +17,7 @@ $app->get('/', function() use ($app) {
 });
 
 $app->register(new JDesrosiers\Silex\Provider\CorsServiceProvider(), array(
-    "cors.allowOrigin" => "http://localhost:9995",
+    "cors.allowOrigin" => "*",
     "cors.allowCredentials" => true,
     "cors.allowHeaders" => "*"
 ));

@@ -20,30 +20,24 @@ setlocale(LC_ALL, 'pt_BR.utf-8');
 
 $app = new Application;
 $app['debug'] = true;
+$config = new \Doctrine\DBAL\Configuration();
+$connectionParams = array(
+    'dbname' => 'openchurch',
+    'user' => 'root',
+    'password' => '',
+    'host' => 'localhost',
+    'driver' => 'pdo_mysql',
+    'charset' => 'utf8'
+);
+$connection = \Doctrine\DBAL\DriverManager::getConnection($connectionParams, $config);
+$app['db'] = $connection;
 
 $app->register(new Silex\Provider\ServiceControllerServiceProvider());
-$app->register(new OpenChurch\AngularPostRequestServiceProvider());
+$app->register(new Cocur\Slugify\Bridge\Silex2\SlugifyServiceProvider());
 
-$app->register(new Ziadoz\Silex\Provider\CapsuleServiceProvider, [
-    'capsule.connection' => [
-        'driver'    => 'mysql',
-        'host'      => 'localhost',
-        'database'  => 'openchurch',
-        'username'  => 'root',
-        'password'  => 'root',
-        'charset'   => 'utf8',
-        'collation' => 'utf8_unicode_ci',
-        'prefix'    => '',
-        'logging'   => true,
-    ],
-]);
-$app['capsule.eloquent'] = true;
-$app['capsule.logging'] = true;
-
-$app->register(new Silex\Provider\SessionServiceProvider());
-$app->register(new Silex\Provider\UrlGeneratorServiceProvider());
-
-$userServiceProvider = new SimpleUser\UserServiceProvider();
+//$userServiceProvider = new SimpleUser\UserServiceProvider();
+//$app->register($userServiceProvider);
+//$app->mount('/user-management', $userServiceProvider);
 $openchurch = new OpenChurch\OpenChurchServiceProvider();
 $app->register($openchurch);
 $app->mount('/', $openchurch);

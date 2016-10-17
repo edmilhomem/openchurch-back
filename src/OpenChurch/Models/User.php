@@ -22,4 +22,18 @@ class User extends Model
     {
         $this->attributes['roles'] = implode(',', $value);
     }
+
+    /**
+     * Relacionamento Usuario:n-Igreja:n 
+     * Descreve as igrejas que o usuário tem permissão de gerenciar
+     *
+     * @see \OpenChurch\Models\Igreja 
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsToMany
+     * @todo Descrever o tipo da permissão
+     */
+    public function igrejas() {
+        return $this->belongsToMany('OpenChurch\Models\Igreja', 'permissoes_usuario_igreja', 'usuario_id', 'igreja_id')
+            ->withTimestamps();
+            //->withPivot('assunto', 'quantidade_biblias', 'quantidade_visitantes', 'observacoes', 'pessoa_id');
+    }
 }

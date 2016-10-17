@@ -18,11 +18,11 @@ use OpenChurch\Controllers\IgrejasController;
 use OpenChurch\Controllers\MembrosController;
 use OpenChurch\Controllers\SalasDeEbdController;
 use OpenChurch\Security\UserProvider;
+use Pimple\Container;
 use Silex\Application;
-use Silex\SilexEvents;
 use Silex\ControllerCollection;
-use Silex\ServiceProviderInterface;
-use Silex\ControllerProviderInterface;
+use Pimple\ServiceProviderInterface;
+use Silex\Api\ControllerProviderInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
@@ -35,16 +35,16 @@ class OpenChurchServiceProvider implements ServiceProviderInterface, ControllerP
      * This method should only be used to configure services and parameters.
      * It should not get services.
      */
-    public function register(Application $app)
+    public function register(Container $app)
     {
-        $app['estados.controller'] = $app->share(function() { return new EstadosController(); });
-        $app['auth.controller'] = $app->share(function(){ return new AuthController(); });
-        $app['presbiterios.controller'] = $app->share(function(){ return new PresbiteriosController(); });
-        $app['igrejas.controller'] = $app->share(function(){ return new IgrejasController(); });
-        $app['pessoas.controller'] = $app->share(function(){ return new PessoasController(); });
-        $app['membros.controller'] = $app->share(function(){ return new MembrosController(); });
-        $app['pastores.controller'] = $app->share(function(){ return new PastoresController(); });
-        $app['ebdsalas.controller'] = $app->share(function(){ return new SalasDeEbdController(); });
+        $app['estados.controller'] = function() { return new EstadosController(); };
+        $app['auth.controller'] = function(){ return new AuthController(); };
+        $app['presbiterios.controller'] = function(){ return new PresbiteriosController(); };
+        $app['igrejas.controller'] = function(){ return new IgrejasController(); };
+        $app['pessoas.controller'] = function(){ return new PessoasController(); };
+        $app['membros.controller'] = function(){ return new MembrosController(); };
+        $app['pastores.controller'] = function(){ return new PastoresController(); };
+        $app['ebdsalas.controller'] = function(){ return new SalasDeEbdController(); };
     }
 
     /**
@@ -82,11 +82,14 @@ class OpenChurchServiceProvider implements ServiceProviderInterface, ControllerP
 
         // presbiterios
         $controllers->get('/presbiterios', 'presbiterios.controller:all');
+        $controllers->get('/presbiterios/{id}', 'presbiterios.controller:find');
 
         // igrejas
         $controllers->get('/igrejas', 'igrejas.controller:all');
         $controllers->get('/igrejas/{id}', 'igrejas.controller:find');
+        $controllers->post('/igrejas', 'igrejas.controller:save');
         $controllers->post('/igrejas/{id}', 'igrejas.controller:save');
+        $controllers->delete('/igrejas/{id}', 'igrejas.controller:delete');
         $controllers->get('/igrejas/{id}/estatisticas', 'igrejas.controller:estatisticas');
         $controllers->get('/igrejas/{id}/ebd/aulas', 'igrejas.controller:all_aulas');
         $controllers->get('/igrejas/{id}/ebd/aulas/{idAula}', 'igrejas.controller:find_aula');
@@ -96,6 +99,7 @@ class OpenChurchServiceProvider implements ServiceProviderInterface, ControllerP
         $controllers->post('/igrejas/{id}/ebd/aulas', 'igrejas.controller:save_aulas');
         $controllers->post('/igrejas/{id}/ebd/aulas/', 'igrejas.controller:save_aulas');
         $controllers->post('/igrejas/{id}/ebd/aulas/{idAula}', 'igrejas.controller:save_aulas');
+        $controllers->get('/igrejas/{idIgreja}/permissao/{idUsuario}', 'auth.controller:permissao');
 
         // ebd - salas
         $controllers->get('/igrejas/{id}/ebd/salas', 'ebdsalas.controller:all');
@@ -125,6 +129,7 @@ class OpenChurchServiceProvider implements ServiceProviderInterface, ControllerP
         $controllers->post('/pastores/{id}', 'pastores.controller:save');
 
         // segurança
+        /*
         $controllers->before(function(Request $request) use ($app) {
             if ($request->getRequestUri() == $app['url_generator']->generate('auth.logon'))
             {
@@ -135,7 +140,7 @@ class OpenChurchServiceProvider implements ServiceProviderInterface, ControllerP
             }
 
         });
-
+        */
         return $controllers;
     }
 

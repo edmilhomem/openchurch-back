@@ -8,13 +8,13 @@
 
 namespace OpenChurch\Controllers;
 
-use OpenChurch\Models\AulaDeEbd;
-use OpenChurch\Models\Igreja;
-use OpenChurch\Models\Membro;
+use Doctrine\DBAL\DBALException;
 use Silex\Application;
+use Symfony\Component\Config\Definition\Exception\Exception;
 use Symfony\Component\HttpFoundation\Request;
-use Illuminate\Database\Capsule\Manager as Capsule;
-use Symfony\Component\Security\Acl\Exception\Exception;
+use OpenChurch\Utils;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class IgrejasController
 {
@@ -35,210 +35,295 @@ class IgrejasController
      * * total: a quantidade total de itens no banco de dados
      * * items: os itens da página atual
      */
-    public function all(Application $application, Request $request) {
-        $q = $request->query->get('q'); // critério de busca
-        $i = $request->query->get('i', null); // indice da página
-        $p = $request->query->get('p'); // tamanho da página
-        $o = $request->query->get('o', 'nome'); // campo da ordenação
-        $t = $request->query->get('t', 'asc'); // tipo da ordenação
-        $skip = null;
+    public function all(Application $application, Request $request)
+    {
+        $document = Utils::controller_all_helper($application['db'], 'igreja', '/igrejas',
+            ['presbiterio'],
+            ['id', 'nome', 'sigla', 'created_at', 'updated_at']);
+        return $application->json($document);
+    }
 
-        if (!$i) {
-            $i = 0;
+    /**
+     * Encontra uma igreja com base no identificador (id). Dispara exceção (404) se uma igreja não for
+     * encontrada com o identificador informado.
+     *
+     * @param $id
+     * @param Application $application
+     * @return \Symfony\Component\HttpFoundation\JsonResponse|void
+     *
+     * @throws
+     */
+    public function find($id, Application $app)
+    {
+        $document = Utils::controller_find_helper($app['db'], 'igreja',
+            ['id' => $id], ['id', 'nome', 'presbiterio', 'created_at', 'updated_at', 'presbiterio']);
+        return $app->json($document);
+    }
+
+    public function exists($id, Application $app)
+    {
+        $sql = 'SELECT id FROM igrejas WHERE id = ?';
+        $query = $app['db']->executeQuery($sql, array($id));
+        $igreja = $query->fetch();
+        if ($igreja) {
+            return true;
         } else {
-            $i--;
+            return false;
         }
-
-        if ($p) {
-            $skip = $i * $p;
-        }
-
-        $query = Igreja::with('presbiterio')
-            ->join('presbiterios', 'igrejas.presbiterio_id', '=', 'presbiterios.id');
-
-        if ($q) {
-            $q = "%$q%";
-            $query->where('igrejas.nome', 'like', $q)
-                ->orWhere('presbiterios.nome', 'like', $q)
-                ->orWhere('presbiterios.sigla', 'like', $q);
-        }
-
-        $total = $query->count();
-
-        $query->orderBy($o, $t)
-            ->select('igrejas.*');
-
-        if ($skip !== null) {
-            $query->skip($skip)->take($p);
-        }
-
-        $igrejas = $query->get();
-
-        return $application->json(
-            array(
-                'total' => $total,
-                'items' => $igrejas
-            )
-        );
-
     }
 
-    public function find($id, Application $application) {
-        $igreja = Igreja::with('presbiterio')->find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+    /**
+     * Salva (cadastra e atualiza) os dados de uma igreja. Se uma igreja for encontrada com base no parâmetro
+     * id, então está no modo de atualização. Caso contrário, está no modo de cadastro (nova igreja).
+     *
+     * Os seguintes dados são esperados via POST:
+     * * nome
+     * * presbiterio_id
+     * * endereco
+     * * endereco_numero
+     * * endereco_bairro
+     * * endereco_cidade
+     * * endereco_uf
+     * * endereco_cep
+     * * telefone
+     * * email
+     *
+     * @param $id
+     * @param Application $application
+     * @param Request $request
+     * @return \Symfony\Component\HttpFoundation\JsonResponse|void
+     */
+    public function save($id = 0, Application $app, Request $request)
+    {
+        $post = json_decode($request->getContent());
+        $igreja = new \stdClass();
+        $existe = false;
+        if ($id) {
+            $query = $app['db']->executeQuery('SELECT * FROM igrejas WHERE id = ?', array($id));
+            $igreja = $query->fetchObject();
+            if ($igreja) {
+                $existe = true;
+            } else {
+                $existe = false;
+            }
         }
-        return $application->json($igreja);
+
+        $igreja->nome = Utils::safeProperty($post, 'nome');
+        $igreja->slug = $app['slugify']->slugify($igreja->nome);
+        $igreja->presbiterio_id = Utils::safeProperty($post, 'presbiterio_id');
+        $igreja->endereco = Utils::safeProperty($post, 'endereco');
+        $igreja->endereco_numero = Utils::safeProperty($post, 'endereco_numero');
+        $igreja->endereco_bairro = Utils::safeProperty($post, 'endereco_bairro');
+        $igreja->endereco_cidade = Utils::safeProperty($post, 'endereco_cidade');
+        $igreja->endereco_uf = Utils::safeProperty($post, 'endereco_uf');
+        $igreja->endereco_cep = Utils::safeProperty($post, 'endereco_cep');
+        $igreja->telefone = Utils::safeProperty($post, 'telefone');
+        $igreja->email = Utils::safeProperty($post, 'email');
+
+        if ($existe) {
+            $igreja->updated_at = Utils::mysqldate();
+            $app['db']->update('igrejas', (array)$igreja, ['id' => $id]);
+        } else {
+            $igreja->created_at = Utils::mysqldate();
+            $app['db']->insert('igrejas', (array)$igreja);
+            $igreja->id = $app['db']->lastInsertId();
+        }
+
+        return $app->json(['data' => $igreja]);
     }
 
-    public function save($id, Application $application, Request $request) {
-        $igreja = Igreja::with('presbiterio')->find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+    public function delete($id, Application $app)
+    {
+        if (!$this->exists($id, $app)) {
+            throw new NotFoundHttpException("A igreja (id = $id) não foi encontrada.");
         }
 
-        $igreja->nome = $request->request->get('nome');
-        $igreja->presbiterio_id = $request->request->get('presbiterio_id');
-        $igreja->endereco = $request->request->get('endereco', null);
-        $igreja->endereco_numero = $request->request->get('endereco_numero', null);
-        $igreja->endereco_bairro = $request->request->get('endereco_bairro', null);
-        $igreja->endereco_cidade = $request->request->get('endereco_cidade', null);
-        $igreja->endereco_uf = $request->request->get('endereco_uf', null);
-        $igreja->endereco_cep = $request->request->get('endereco_cep', null);
-        $igreja->telefone = $request->request->get('telefone', null);
-        $igreja->email = $request->request->get('email', null);
-        $igreja->save();
-
-        return $application->json($igreja);
+        $sql = 'DELETE FROM igrejas WHERE id = ?';
+        try {
+            $r = $app['db']->executeUpdate($sql, array($id));
+            if ($r > 0) {
+                return $app->json(['data' => 'ok']);
+            } else {
+                throw new HttpException(500, "Não foi possível excluir a igreja (id = $id).");
+            }
+        } catch (Exception $e) {
+            throw new HttpException(500, "Erro interno. Não foi possível excluir a igreja (id = $id).", $e);
+        } catch (DBALException $e) {
+            throw new HttpException(500, "Erro no banco de dados. Não foi possível excluir a igreja (id = $id).", $e);
+        }
     }
 
-    public function all_aulas($id, $ano = null, Application $application, Request $request) {
-        $igreja = Igreja::find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+
+    public function all_aulas($id, $ano = null, Application $application, Request $request)
+    {
+        if (!$this->exists($id, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $id) não foi encontrada.");
         }
-        $q = $request->query->get('q'); // critério de busca
+        $q = $request->query->get('q', null); // critério de busca
         $i = $request->query->get('i', null); // indice da página
-        $p = $request->query->get('p'); // tamanho da página
+        $p = $request->query->get('p', null); // tamanho da página
         $o = $request->query->get('o', 'data'); // campo da ordenação
         $t = $request->query->get('t', 'asc'); // tipo da ordenação
-        $skip = null;
 
-        if (!$i) {
-            $i = 0;
-        } else {
-            $i--;
+        if (!$i || $i <= 0) {
+            $i = 1;
         }
+        $i--;
 
-        if ($p) {
-            $skip = $i * $p;
-        }
-
+        $select = "SELECT * ";
+        $sql = "FROM ebd_aulas ";
+        $where = [];
+        $where_params = [];
         if ($ano) {
-            $query = AulaDeEbd::whereRaw('year(data) = ' . $ano);
-            $skip = null;
-        } else {
-            $query = AulaDeEbd::query();
+            $where[] = "(year(data) = ?) AND ";
         }
 
         if ($q) {
             $q = "%$q%";
-            $query = AulaDeEbd::where('data', 'like', $q)
-                ->orWhere('observacoes', 'like', $q);
+            $where[] = "(data like ?) OR ";
+            $where[] = "(observacoes like ?)";
         }
 
-        $total = $query->count();
+        if (count($where)) {
+            $sql .= ' WHERE ' . join("", $where);
+            if ($ano) {
+                $where_params[] = $ano;
+            }
+            if ($q) {
+                $where_params[] = $q;
+                $where_params[] = $q;
+            }
+        }
+        $query = $application['db']->executeQuery("SELECT count(*) as quantidade " . $sql, $where_params);
+        $total = $query->fetch();
+        $total = $total['quantidade'];
 
-        $query->orderBy($o, $t);
+        $sql .= " ORDER BY $o $t";
 
-        if ($skip !== null) {
-            $query->skip($skip)->take($p);
+        if ($p) {
+            $offset = $i * $p;
+            $sql .= " LIMIT $p OFFSET $offset";
         }
 
-        $aulas = $query->get();
+        $query = $application['db']->executeQuery($select . $sql, $where_params);
+        $aulas = $query->fetchAll();
 
         return $application->json(
             array(
-                'total' => $total,
-                'items' => $aulas
+                'data' => [
+                    'total' => $total,
+                    'items' => $aulas
+                ]
             )
         );
     }
 
-    public function save_aulas($id, $idAula = null, Application $application, Request $request) {
-        $igreja = Igreja::find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+    public function save_aulas($id, $idAula = null, Application $application, Request $request)
+    {
+        if (!$this->exists($id, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $id) não foi encontrada.");
         }
-        $aula = AulaDeEbd::find($idAula);
-        if (!$aula)
-            $aula = new AulaDeEbd;
-        $aula->igreja()->associate($igreja);
-        $aula->data = $request->request->get('data');
-        $aula->observacoes = $request->request->get('observacoes');
-        $aula->push();
-        return $application->json($aula);
+        $post = json_decode($request->getContent());
+        $aula = new \stdClass();
+        $existe = false;
+        if ($idAula) {
+            $query = $application['db']->executeQuery('SELECT * FROM ebd_aulas WHERE id = ?', array($idAula));
+            $aula = $query->fetchObject();
+            if ($aula) {
+                $existe = true;
+            } else {
+                $existe = false;
+            }
+        }
+        $aula->igreja_id = $id;
+        $aula->data = Utils::safeProperty($post, 'data');
+        $aula->observacoes = Utils::safeProperty($post, 'observacoes');
+        if ($existe) {
+            $aula->updated_at = Utils::mysqldate();
+            $application['db']->update('ebd_aulas', (array)$aula, ['id' => $idAula]);
+        } else {
+            $aula->created_at = Utils::mysqldate();
+            $application['db']->insert('ebd_aulas', (array)$aula);
+            $aula->id = $application['db']->lastInsertId();
+        }
+        return $application->json(['data' => $aula]);
     }
 
-    public function find_aula($id, $idAula, Application $application, Request $request) {
-        $igreja = Igreja::find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+    public function find_aula($id, $idAula, Application $application, Request $request)
+    {
+        if (!$this->exists($id, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $id) não foi encontrada.");
         }
-        $aula = AulaDeEbd::find($idAula);
+        $query = $application['db']->executeQuery("SELECT * FROM ebd_aulas WHERE igreja_id = ? AND id = ?",
+            array($id, $idAula));
+        $aula = $query->fetch();
         if (!$aula)
-            return $application->abort(404);
-        return $application->json($aula);
+            throw new NotFoundHttpException("A aula (id = $idAula) não foi encontrada.");
+        return $application->json(["data" => $aula]);
     }
 
-    public function config_aulas($id, $ano = 2016, Application $application, Request $request) {
-        $igreja = Igreja::find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+    public function config_aulas($id, $ano = null, Application $application, Request $request)
+    {
+        if (!$ano) $ano = (integer)date('Y');
+        if (!$this->exists($id, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $id) não foi encontrada.");
+        }
+        $query = $application['db']->executeQuery("SELECT count(*) as quantidade FROM ebd_aulas WHERE year(data) = ?",
+            array($ano));
+        $total_aulas = $query->fetch();
+        $total_aulas = $total_aulas['quantidade'];
+        if ($total_aulas > 0) {
+            throw new HttpException(500, "Já existem $total_aulas aula(s) cadastrada(s) para $ano.");
         }
         $primeiro_domingo = new \DateTime(date('Y-m-d', strtotime('first sunday of January ' . $ano)));
         $ultimo_domingo = new \DateTime(date('Y-m-d', strtotime('last sunday of December ' . $ano)));
         $data = $primeiro_domingo;
         $datas = array(clone($data));
-        while($data->diff($ultimo_domingo)->days > 0) {
+        while ($data->diff($ultimo_domingo)->days > 0) {
             $data->add(date_interval_create_from_date_string('7 days'));
             $datas[] = clone($data);
         }
         try {
-            Capsule::beginTransaction();
+            $application['db']->beginTransaction();
             foreach ($datas as $data) {
-                $aula = new AulaDeEbd;
-                $aula->igreja()->associate($igreja);
+                $aula = new \stdClass();
+                $aula->igreja_id = $id;
                 $aula->data = $data->format('Y-m-d');
-                $aula->save();
+                $aula->created_at = Utils::mysqldate();
+                $application['db']->insert('ebd_aulas', (array)$aula);
             }
-            Capsule::commit();
+            $application['db']->commit();
         } catch (Exception $e) {
-            Capsule::rollback();
-            throw $e;
+            $application['db']->rollBack();
+            throw new Exception("Ocorreu erro ao criar as aulas para o ano $ano", $e);
         }
-        return $application->escape('ok');
+        return $application->json(['data' => count($datas)]);
     }
 
-    public function estatisticas($id, Application $application) {
-        $igreja = Igreja::find($id);
-        if (!$igreja) {
-            return $application->abort(404);
+    public function estatisticas($id, Application $application)
+    {
+        if (!$this->exists($id, $application)) {
+            throw new NotFoundHttpException("A igreja (id = $id) não foi encontrada.");
         }
-        $membros = Membro::with('pessoa')
-            ->join('pessoas', 'membros.pessoa_id', '=', 'pessoas.id')
-            ->where('membros.igreja_id','=',$igreja->id)
-            ->count();
-        $homens = Membro::with('pessoa')
-            ->join('pessoas', 'membros.pessoa_id', '=', 'pessoas.id')
-            ->where('membros.igreja_id','=',$igreja->id)
-            ->where('pessoas.sexo','=','M')
-            ->count();
-        $mulheres = Membro::with('pessoa')
-            ->join('pessoas', 'membros.pessoa_id', '=', 'pessoas.id')
-            ->where('membros.igreja_id','=',$igreja->id)
-            ->where('pessoas.sexo','=','F')
-            ->count();
+
+        $sql_membros = "SELECT count(*) as quantidade 
+FROM membros INNER JOIN pessoas on membros.pessoa_id = pessoas.id 
+WHERE membros.igreja_id = ?";
+
+        $sql_homens = $sql_membros . " AND pessoas.sexo = 'M'";
+        $sql_mulheres = $sql_membros . " AND pessoas.sexo = 'F'";
+
+        $query = $application['db']->executeQuery($sql_membros, array($id));
+        $membros = $query->fetch();
+        $membros = $membros['quantidade'];
+
+        $query = $application['db']->executeQuery($sql_homens, array($id));
+        $homens = $query->fetch();
+        $homens = $homens['quantidade'];
+
+        $query = $application['db']->executeQuery($sql_mulheres, array($id));
+        $mulheres = $query->fetch();
+        $mulheres = $mulheres['quantidade'];
 
         /*
          * select count(*) as quantidade, round(datediff(now(), pessoas.data_de_nascimento)/365) as idade
@@ -247,34 +332,37 @@ where igreja_id=1
 group by idade;
 
          */
-        $membros_por_idade = Membro::
-            select(Capsule::raw('count(*) as quantidade'), Capsule::raw('round(datediff(now(), pessoas.data_de_nascimento)/365) as idade'))
-            ->join('pessoas', 'membros.pessoa_id', '=', 'pessoas.id')
-            ->where('membros.igreja_id','=',$igreja->id)
-            ->groupBy('idade')
-            ->get();
 
-        $membros_por_faixa_etaria = Membro::
-        select(Capsule::raw('count(*) as quantidade'), Capsule::raw('round(datediff(now(), pessoas.data_de_nascimento)/365) div 10 as faixa_etaria'))
-            ->join('pessoas', 'membros.pessoa_id', '=', 'pessoas.id')
-            ->where('membros.igreja_id','=',$igreja->id)
-            ->groupBy('faixa_etaria')
-            ->get();
+        $sql_membros_por_idade = "SELECT count(*) as quantidade, round(datediff(now(), pessoas.data_de_nascimento)/365) as idade 
+FROM membros INNER JOIN pessoas on membros.pessoa_id = pessoas.id 
+WHERE membros.igreja_id = ? 
+GROUP BY idade";
+        $query = $application['db']->executeQuery($sql_membros_por_idade, array($id));
+        $membros_por_idade = $query->fetchAll();
 
-        $aniversariantes = Membro::
-            join('pessoas', 'membros.pessoa_id', '=', 'pessoas.id')
-            ->where('membros.igreja_id','=',$igreja->id)
-            ->whereRaw('month(pessoas.data_de_nascimento)=month(now())')
-            ->select('membros.id', 'pessoas.nome', Capsule::raw('round(datediff(now(), pessoas.data_de_nascimento)/365) as idade'))
-            ->get();
+        $sql_membros_por_faixa_etaria = "SELECT count(*) as quantidade, round(datediff(now(), pessoas.data_de_nascimento)/365) div 10 as faixa_etaria
+FROM membros INNER JOIN pessoas on membros.pessoa_id = pessoas.id 
+WHERE membros.igreja_id = ? 
+GROUP BY faixa_etaria";
+        $query = $application['db']->executeQuery($sql_membros_por_faixa_etaria, array($id));
+        $membros_por_faixa_etaria = $query->fetchAll();
+
+
+        $sql_aniversariantes = "SELECT membros.id as membro_id, pessoas.*, round(datediff(now(), pessoas.data_de_nascimento)/365) as idade 
+FROM membros INNER JOIN pessoas ON membros.pessoa_id = pessoas.id
+WHERE membros.igreja_id = ? AND month(pessoas.data_de_nascimento)=month(now())";
+        $query = $application['db']->executeQuery($sql_aniversariantes, array($id));
+        $aniversariantes = $query->fetchAll();
 
         return $application->json(array(
-            'total_de_membros' => $membros,
-            'homens' => $homens,
-            'mulheres' => $mulheres,
-            'membros_por_idade' => $membros_por_idade,
-            'membros_por_faixa_etaria' => $membros_por_faixa_etaria,
-            'aniversariantes' => $aniversariantes
+            'data' => [
+                'membros' => $membros,
+                'homens' => $homens,
+                'mulheres' => $mulheres,
+                'membros_por_idade' => $membros_por_idade,
+                'membros_por_faixa_etaria' => $membros_por_faixa_etaria,
+                'aniversariantes' => $aniversariantes
+            ]
         ));
     }
 }

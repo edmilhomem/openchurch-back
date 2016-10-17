@@ -11,57 +11,54 @@ namespace OpenChurch\Controllers;
 
 use OpenChurch\Data\DataUtils;
 use OpenChurch\Models\Pessoa;
+use OpenChurch\Serializers\PessoaSerializer;
 use Silex\Application;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\Security\Acl\Exception\Exception;
+use Tobscure\JsonApi\Collection;
+use Tobscure\JsonApi\Document;
+use Tobscure\JsonApi\Parameters;
+use Tobscure\JsonApi\Resource;
 
 class PessoasController
 {
     public function all(Application $application, Request $request)
     {
-        $q = $request->query->get('q'); // critério de busca
-        $i = $request->query->get('i', null); // indice da página
-        $p = $request->query->get('p'); // tamanho da página
-        $o = $request->query->get('o', 'nome'); // campo da ordenação
-        $t = $request->query->get('t', 'asc'); // tipo da ordenação
-        $skip = null;
+        $manager = new Pessoa($application['db']);
+        $parameters = new Parameters($_GET);
+        $include = $parameters->getInclude(['conjuge', 'pai', 'mae']);
+        $fields = $parameters->getFields();
+        $filter = $parameters->getFilter();
+        $sort = $parameters->getSort(['id', 'nome', 'created_at', 'updated_at', 'data_de_nascimento']);
+        $limit = $parameters->getLimit(100);
+        if (!$limit) $limit = 100;
+        $offset = $parameters->getOffset($limit);
 
-        if (!$i) {
-            $i = 0;
-        } else {
-            $i--;
-        }
-
-        if ($p) {
-            $skip = $i * $p;
-        }
-
-        $query = Pessoa::with(array('pai', 'mae', 'conjuge'));
-
-        if ($q) {
-            $q = "%$q%";
-            $query->where('nome', 'like', $q);
-        }
-
-        $total = $query->count();
-        $query->orderBy($o, $t);
-        if ($skip !== null) {
-            $query->skip($skip)->take($p);
-        }
-        $pessoas = $query->get();
-
-        return $application->json(
-            array(
-                'total' => $total,
-                'items' => $pessoas
-            )
-        );
+        $pessoas = $manager->find([], $total, [], $filter, $sort, $limit, $offset);
+        $collection = (new Collection($pessoas, new PessoaSerializer));
+        $collection->with($include);
+        $collection->fields($fields);
+        $document = new Document($collection);
+        $document->addLink('self', '/pessoas');
+        $document->addPaginationLinks('/', [$filter], $offset, $limit, $total);
+        $document->addMeta('total', $total);
+        return $application->json($document);
     }
 
     public function find($id, Application $application)
     {
-        $pessoa = Pessoa::with('pai', 'mae', 'conjuge')->findOrFail($id);
-        return $application->json($pessoa);
+        $parameters = new Parameters($_GET);
+        $include = $parameters->getInclude(['pai', 'mae', 'conjuge']);
+
+        $pessoas_manager = new Pessoa($application['db']);
+        $total = 1;
+        $pessoa = $pessoas_manager->find(['id' => $id], $total, $include);
+
+        $resource = new Resource($pessoa, new PessoaSerializer);
+        $resource->with($include);
+        $resource->fields($parameters->getFields());
+        $document = new Document($resource);
+
+        return $application->json($document);
     }
 
     public function save($id = null, Application $application, Request $request)

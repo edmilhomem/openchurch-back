@@ -1,0 +1,152 @@
+<?php
+
+/**
+ * Created by PhpStorm.
+ * User: Jackson
+ * Date: 18/03/2016
+ * Time: 01:38
+ */
+
+use GuzzleHttp\Client;
+
+class IgrejasTest extends PHPUnit_Framework_TestCase
+{
+    protected $client;
+    protected $user;
+
+    protected function setUp()
+    {
+        $this->client = new Client([
+            'base_uri' => 'http://localhost/openchurch/openchurch-back/',
+            'cookies' => true
+        ]);
+        try {
+            $response = $this->client->post('auth/logon', [
+                'json' => [
+                    'username' => 'admin',
+                    'password' => 'admin'
+                ]
+            ]);
+            $this->user = json_decode($response->getBody());
+        } catch (Exception $e) {
+            $this->fail('Falha geral nos testes: falha de autenticação. ' . $e->getMessage());
+        }
+    }
+
+    public function testStatusCodeDeveSer200() {
+        $response = $this->client->get('');
+        $this->assertEquals(200, $response->getStatusCode());
+    }
+
+    public function testResponseParaJson() {
+        $response = $this->client->get('igrejas');
+        $this->assertEquals(200, $response->getStatusCode());
+        $this->response_body = json_decode($response->getBody(), true);
+    }
+
+    public function testDeveRetornarMaisDeUmaIgreja() {
+        $this->testResponseParaJson();
+        $this->assertGreaterThanOrEqual(1, count($this->response_body['items']));
+    }
+
+    public function testNomeDaPrimeiraIgrejaDeveSer() {
+        $this->testResponseParaJson();
+        $this->assertEquals('Igreja Presbiteriana de Paraíso', $this->response_body['items'][0]['nome']);
+    }
+
+    public function testFindDeveEncontrarIgrejaPeloId() {
+        $response = $this->client->get('igrejas/1');
+        $this->assertEquals(200, $response->getStatusCode());
+        $this->response_body = json_decode($response->getBody(), true);
+        $this->assertEquals('Igreja Presbiteriana de Paraíso', $this->response_body['nome']);
+    }
+
+    public function testFindDeveNaoEncontrarIgrejaPeloId() {
+        try {
+            $response = $this->client->get('igrejas/123');
+        } catch (Exception $e) {
+            $this->assertEquals(404, $e->getCode());
+        }
+    }
+
+    public function testFindDeveEncontrarIgrejaPeloSlug() {
+        $response = $this->client->get('igrejas/igreja-presbiteriana-de-paraiso');
+        $this->assertEquals(200, $response->getStatusCode());
+        $this->response_body = json_decode($response->getBody(), true);
+        $this->assertEquals('Igreja Presbiteriana de Paraíso', $this->response_body['nome']);
+    }
+
+    public function testFindDeveNaoEncontrarIgrejaPeloSlug() {
+        try {
+            $response = $this->client->get('igrejas/essa-igreja-nao-existe');
+        } catch (Exception $e) {
+            $this->assertEquals(404, $e->getCode());
+        }
+    }
+
+    public function testSaveOk() {
+        try {
+            $response = $this->client->post('igrejas', [
+                'json' => [
+                    'nome' => 'Igreja Presbiteriana Ebenézer',
+                    'presbiterio_id' => 1
+                ]
+            ]);
+            $igreja = json_decode($response->getBody());
+            $this->assertGreaterThan(0, $igreja->id);
+        } catch (Exception $e) {
+            $this->fail($e);
+        }
+    }
+
+    public function testSaveDeveFalharPorVerificacaoDeNomeUnico() {
+        try {
+            $response = $this->client->post('igrejas', [
+                'json' => [
+                    'nome' => 'Igreja Presbiteriana de Paraíso'
+                ]
+            ]);
+        } catch (Exception $e) {
+            $this->assertEquals(500, $e->getCode());
+        }
+    }
+
+    /**
+     * @depends testSaveOk
+     */
+    public function testFindIgrejaPresbiterianaEbenezer() {
+        $response = $this->client->get('igrejas/igreja-presbiteriana-ebenezer');
+        $this->assertEquals(200, $response->getStatusCode());
+        $this->response_body = json_decode($response->getBody(), true);
+        $this->assertEquals('Igreja Presbiteriana Ebenézer', $this->response_body['nome']);
+    }
+
+    /**
+     * @depends testFindIgrejaPresbiterianaEbenezer
+     */
+    public function testDeleteDeveExcluirIgreja() {
+        try {
+            $response = $this->client->get('igrejas/igreja-presbiteriana-ebenezer');
+            $igreja = json_decode($response->getBody());
+            try {
+                $response = $this->client->delete('igrejas/' . $igreja->id);
+            } catch (Exception $ex) {
+                $this->assertEquals(500, $ex->getCode());
+            }
+            try {
+                $response = $this->client->get('igrejas/igreja-presbiteriana-ebenezer');
+            } catch (Exception $ex1) {
+                $this->assertEquals(404, $ex1->getCode());
+            }
+        } catch (Exception $e) {
+            $this->fail($e);
+        }
+    }
+
+
+    protected function tearDown()
+    {
+        parent::tearDown(); // TODO: Change the autogenerated stub
+        
+    }
+}

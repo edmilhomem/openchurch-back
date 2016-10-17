@@ -7,6 +7,7 @@
  */
 
 namespace OpenChurch\Controllers;
+use OpenChurch\Models\PermissaoDeUsuarioEmIgreja;
 use OpenChurch\Models\User;
 use Silex\Application;
 use Symfony\Component\HttpFoundation\Request;
@@ -27,7 +28,7 @@ class AuthController
         $username = $req->request->get('username');
         $password = $req->request->get('password');
 
-        $user = User::where('username', $username)->first();
+        $user = User::with('igrejas')->where('username', $username)->first();
 
         if (!$user) {
             return $app->abort(403, 'Falha na autenticação: usuário não encontrado');
@@ -48,5 +49,20 @@ class AuthController
     public function logout(Application $application) {
         $application['session']->clear();
         return $application->escape("1");
+    }
+
+    public function permissoes($id, Application $application) {
+        
+    }
+    
+    public function permissao($idUsuario, $idIgreja, Application $application) {
+        $permissao = PermissaoDeUsuarioEmIgreja::query()->where('usuario_id','=',$idUsuario)
+            ->where('igreja_id', '=', $idIgreja)
+            ->get();
+        if (!count($permissao)) {
+            return $application->abort(403);
+        }
+
+        return $application->json($permissao);
     }
 }

@@ -7,14 +7,8 @@
  */
 
 namespace OpenChurch\Models;
-use Illuminate\Database\Eloquent\Model;
 
 class Presbiterio extends Model
 {
     protected $table = 'presbiterios';
-
-    public function igrejas()
-    {
-        return $this->hasMany('OpenChurch\Models\Igreja');
-    }
 }
